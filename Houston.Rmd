@@ -1,0 +1,186 @@
+---
+title: "Houston’s Dead Hand Wasn't _That_ Unlikely"
+author: "Michael O'Dell"
+date: "5/30/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r init, echo=FALSE, message=FALSE}
+### How big an outlier is the Rocket's 7 - 44 3pt performance in Game 7?
+### 2018-05-29
+
+
+
+# SET ENVIRONMENT ---------------------------------------------------------
+
+library(tidyverse)
+library(magrittr)
+
+
+# LOAD DATA ---------------------------------------------------------------
+
+rockets <- read_csv("./HOU_2017_18.csv")
+teams <- read_csv("./2017_reg_season.csv")
+
+
+# DEFINE FUNCTIONS --------------------------------------------------------
+
+est_beta_params <- function(mu, var) {
+  alpha <- ((1 - mu) / var - 1 / mu) * mu ^ 2
+  beta <- alpha * (1 / mu - 1)
+  return(params = list(alpha = alpha, beta = beta))
+}
+
+estimate_beta_dist <- function(x) {
+  mu <- mean(x)
+  var <- var(x)
+  params <- est_beta_params(mu, var)
+  return(
+    data_frame(x = seq(0, 1, .001), y = dbeta(x, params$alpha, params$beta)) %>%
+      mutate(Parameters = paste0("\u03B1 = ", params$alpha, ", \u03B2 = ",
+                                 params$beta)) %>%
+      mutate(Parameters = factor(Parameters, levels = unique(Parameters)))
+  )
+}
+
+
+# COMPUTE ADDITIONAL VARIABLES --------------------------------------------
+
+rockets %<>%
+  mutate(
+    cr = made_3 / attempt_3
+  )
+```
+
+The Rockets had great first half and a bad second half of the Western Conference Finals game 7 against the Golden State Warriors. But was it a meltdown for the ages? A lottery jackpot of bad luck? Seems like everyone is focused on the 27-in-a-row missed 3-pointers. FiveThirtyEight highlights the odds of Houston's game 7 cold streak at [1 in 72,000](https://fivethirtyeight.com/features/the-odds-of-the-rockets-missing-that-many-3s-1-in-72000/). The Ringer says the odds were [1 in 186,220](https://www.theringer.com/nba/2018/5/29/17404748/houston-rockets-27-straight-misses-game-7-warriors). Really? A 1-in-a-couple-millennia bad game? Hardly.
+
+### Ignore 'the Streak'
+It's not how many misses in a row that made the difference in game 7, it's that the Rockets only made seven 3-pointers the entire game (tied for the fewest they made all season). Any number of those seven shots from distance could have come in during Curry's 4-for-5 3-pointer third quarter, and then people would have been talking about a 20-in-a-row (1 in 7,522 chance), a 14-in-a-row (1 in 516), or a pick-your-number-in-a-row miss streak. But whatever the number, it wasn't the streak per se that caused Houston to lose.
+
+What did cause the Rockets to lose game 7 was their overall 15.9% 3-point shooting percentage Monday night. That was certainly Houston's worst shooting percentage of the season, but how unlikely was such a poor showing? Houston played 99 games this season (regular + playoffs). That history can give us a pretty good answer along with an answer to another burning question, "would Chris Paul have made a difference?"
+
+### Lightning strikes ... _twice?_
+99 games is not a huge data set for a continous variable with a wide possible variance such as 3-point shooting percentage. But we work with what we got. Plotting the density shows that the per game 3-point shooting percentage is distributed somewhat normal-ish. So that gives us some hope that we can make somewhat reliable conclusions. 
+
+Two things jump out from the plot: 
+
+1. Game 7 sits out on the left hand side of the distribution (a good clue that it was an unusually bad game for Houston), and
+2. there was an _unusually good game_ as well. 
+
+```{r three_point_normal, echo=FALSE}
+
+season_sim_norm <- data_frame(x = seq(0, 1, .01), 
+                         y = dnorm(x, mean(rockets$cr), sd(rockets$cr)))
+
+# PLOT PER GAME 3-POINT SHOOTING PERCENTAGE -------------------------------
+
+rockets %>%
+  mutate(
+    `Color Key` = ifelse(cr < 0.16, "Game 7", 
+                 ifelse(cr > 0.58, "vs Utah, Nov 5 (23 for 39)", "Other Games"))
+  ) %>%
+  ggplot() +
+  geom_density(aes(cr, color = `Color Key`)) +
+  geom_line(data = season_sim_norm, aes(x, y), linetype = 2) +
+  annotate("text", x = .16, y = 1.6, label = "WCF Game 7\n(7 for 44)", color = '#F8766D', size = 3) +
+  annotate("text", x = .59, y = 1.6, label = "vs Utah, Nov 5\n(23 for 39)", color = '#619DFF', size = 3) +
+  labs(x = "3-point Shooting Percentage", 
+       y = "Number of Games",
+       title = "3-point shooting percentage density: all games",
+       subtitle = expression(paste("Normal distribution overlay with same ", mu, " and ", sigma, sep = ""))) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(breaks = c(seq(0,10, by = 2))) +
+  coord_cartesian(xlim = c(0, 0.75)) +
+  scale_color_manual(values = c('#F8766D', "grey40", '#619DFF')) +
+  guides(color = FALSE)
+
+```
+
+That there are _two_ such outliers underscores that 99 games is not a large dataset for this type of analysis and suggests that the true standard deviation may be somewhat larger than the data suggests (or that our prior is relatively uninformed for you Bayesians out there). But we press on.
+
+So how unusual were these two games? Based on a normal distribution with the same mean and standard deviation as Houston's data, a game as bad as game 7 (or worse) is a `r paste0("1-in-", round(season_sim_norm %>% filter(x <= 7/44) %>% summarize(y = 100/sum(y)), 0))`-games kind of game. Said another way, one could expect a game that bad (or worse) once every 5 seasons (assuming a deep run into the playoffs). 
+
+On the other hand, Houston's 23 for 39 night against Utah is a `r paste0("1-in-", round(season_sim_norm %>% filter(x >= 23/39) %>% summarize(y = 100/sum(y)), 0))`-games kind of game: a once-every-12-seasons kind of game. Hmmm. Looks like Houston not only got struck by lightning, but also caught lightning (in a bottle), this season. Two lightning strikes in one season is extra unlikely (over 611,000-to-1 in this case), but [Stranger things](https://en.wikipedia.org/wiki/Roy_Sullivan) have happened.
+
+### But what about Chris Paul?
+However, the answer to the question "would Chris Paul playing in game 7 have lead to a Rocket's victory" suggests that the odds of the hot and cold hands of Houston's two unlikely games are not so unlikely.
+
+After looking at a number of variable that could affect 3-point shooting percentage (strength of opponent, time-of-season, games with/without Harden, etc.) only two showed any directional impact: number of attempts (shooting percentage goes down as attempts go up) and games with/without Chris Paul. And of those two, only Chris Paul's presence or absence in a game was statistically significant. 
+
+```{r paul, echo=FALSE}
+
+cp <- rockets %>%
+  # filter(season == "regular") %>%
+  mutate(
+    paul = ifelse(paul == "0", "without", "with"),
+    outcome = ifelse(outcome == "W", 1, 0)
+  ) %>%
+  group_by(
+    paul
+  ) %>%
+  summarize(
+    win = sum(outcome),
+    loss = n() - win,
+    wp = win / n(),
+    cr = mean(cr)
+  )
+
+cpt <- rockets %>%
+  mutate(
+    paul = ifelse(paul == "0", 0, 1)
+  ) %>%
+  select(
+    paul,
+    cr
+  ) %$%
+  t.test(cr ~ paul)
+
+```
+
+Chris Paul did not play in 26 games over the season. Without him, Houston went 15 and 11 (a decidedly mediocre `r round(cp %>% filter(paul == "without") %>% select(wp), 3)`). With him, the Rockets were 61 and 12 (`r round(cp %>% filter(paul == "with") %>% select(wp), 3)`). Not playing Chris Paul in a game depressed 3-point shooting somewhere between 0 and `r paste0(-round(cpt$conf.int[1], 2) * 100, "%")` and on average `r paste0(round((cpt$estimate[[2]] - cpt$estimate[[1]]), 2) * 100, "%")`. Had Paul played and Houston shot 4% better--worth almost 2 more 3-pointers, they would have still come up short. But had Paul's presence in the game helped them shoot at the upper end of the range, that 7% improvement would have been enough to tie the game. **Wow, had Paul played perhaps we could have seen _overtime_ in a Western Conference Finals game 7!** What a treat that would have been.
+
+```{r no_paul, echo=FALSE}
+
+rockets_np <- rockets %>%
+  filter(paul == "0") 
+
+season_sim_no_paul <- data_frame(x = seq(0, 1, .01), 
+                         y = dnorm(x, mean(rockets_np$cr), sd(rockets_np$cr)))
+
+# PLOT PER GAME 3-POINT SHOOTING PERCENTAGE -------------------------------
+
+rockets_np %>%
+  mutate(
+    `Color Key` = ifelse(cr < 0.16, "Game 7", 
+                 ifelse(cr > 0.58, "vs Utah, Nov 5 (23 for 39)", "Other Games"))
+  ) %>%
+  ggplot() +
+  geom_density(aes(cr, color = `Color Key`)) +
+  geom_line(data = season_sim_no_paul, aes(x, y), linetype = 2) +
+  geom_line(data = season_sim_norm, aes(x, y), linetype = 2, color = "grey75") +
+  annotate("text", x = .14, y = 1.6, label = "WCF Game 7\n(7 for 44)", color = '#F8766D', size = 3) +
+  annotate("text", x = .6, y = 1.6, label = "vs Utah, Nov 5\n(23 for 39)", color = '#619DFF', size = 3) +
+  annotate("text", x = .55, y = 4.3, label = "normal distribution using all games", color = 'grey65', size = 3) +
+  labs(x = "3-point Shooting Percentage", 
+       y = "Number of Games",
+       title = "3-point shooting percentage density: games w/o Chris Paul",
+       subtitle = expression(paste("Normal distribution overlay with same ", mu, " and ", sigma, sep = ""))) +
+  scale_x_continuous(labels = scales::percent) +
+  scale_y_continuous(breaks = c(seq(0,10, by = 2))) +
+  coord_cartesian(xlim = c(0, 0.75)) +
+  scale_color_manual(values = c('#F8766D', "grey40", '#619DFF')) +
+  guides(color = FALSE)
+
+```
+
+### How unlikely was game 7 given that Paul did not play?
+Without Paul, Houston's 3-point shooting percentage averaged 4% lower and the standard deviation is larger. The dataset is also smaller and so our uncertainty is larger, but nevertheless, using that data puts game 7 (and the Utah game that was also played without Chris Paul) in a different light. 
+
+Using the "no-Chris-Paul" distribution, the Utah game becomes about 30% more likely (`r paste0("1 in ", round(season_sim_no_paul %>% filter(x >= 23/39) %>% summarize(y = 100/sum(y)), 0))`).  Odds for a game 7 (or worse) type game, however, goes from `r paste0("1 in ", round(season_sim_norm %>% filter(x <= 7/44) %>% summarize(y = 100/sum(y)), 0))` to **`r paste0("1 in ", round(season_sim_no_paul %>% filter(x <= 7/44) %>% summarize(y = 100/sum(y)), 0))`**. That certainly makes game 7 look a lot less like [dying by car (let alone by dog)](https://www.iii.org/fact-statistic/facts-statistics-mortality-risk) and more like a (really) bad day at the office. [Terrible, Horrible, No Good, Very Bad Day](https://www.amazon.com/Alexander-Terrible-Horrible-Classic-Board/dp/1442498161) it may be, but that's still a snake-bit game given that Houston didn't come anywhere close to playing 59 games without Paul.
+
+So perhaps game 7 wasn't a no-chance-we'll-ever-see-that-again disaster, but rather, a much more likely hazzard of living by having to make a lot of relatively low percentage shots. Either way, it was certainly a cruel twist of fate for Houston and Chris Paul that he had to sit out game 7. A game, that had he played, may well have resulted in Houston hosting the Cavaliers tonight.
+
